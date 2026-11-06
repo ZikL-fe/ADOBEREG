@@ -1,0 +1,8 @@
+puhao.db
+puhao.db-*
+__pycache__/
+*.pyc
+last_*.json
+grab_fresh.json
+raw_c.json
+arkose_api_live.js

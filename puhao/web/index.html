@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>普号注册 交流QQ群：727682537</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="titlebar">
+  <div class="drag" id="drag">
+    <img class="mark" src="icon.png" alt="" />
+    <span class="name">普号注册</span>
+    <span class="qq">交流QQ群：727682537</span>
+  </div>
+  <div class="links">
+    <button id="buy" class="link" type="button" title="https://cookieauto.com/register?invite=RUS99UJJ">积分号购买</button>
+    <button id="repo" class="link" type="button" title="https://github.com/lichao199208/ADOBEREG">开源仓库</button>
+  </div>
+  <div id="env" class="chips"></div>
+  <button id="min" class="win" type="button" title="最小化">—</button>
+  <button id="close" class="win close" type="button" title="关闭"><span class="x"></span></button>
+</div>
+<main>
+  <section class="card">
+    <h2>设置</h2>
+    <label>YesCaptcha 密钥</label>
+    <input id="key" type="password" autocomplete="off" placeholder="打码密钥" />
+    <label>代理</label>
+    <textarea id="proxies" rows="6" placeholder="一行一条，可写多行"></textarea>
+    <label>默认国家</label>
+    <select id="country"></select>
+    <div class="pair">
+      <div>
+        <label>本地注册数量</label>
+        <input id="count" type="number" min="0" max="9999" value="0" />
+      </div>
+      <div>
+        <label>线程数</label>
+        <input id="conc" type="number" min="1" max="20" value="1" />
+      </div>
+    </div>
+    <button id="initEnv" class="btn block">初始化环境</button>
+    <button id="save" class="btn block">保存设置</button>
+    <button id="startLocal" class="btn block primary">开始注册</button>
+    <p id="saveMsg" class="hint"></p>
+  </section>
+  <section class="card grow">
+    <div class="bar">
+      <h2>邮箱</h2>
+      <div id="sum" class="chips"></div>
+    </div>
+    <textarea id="import" rows="5" placeholder="一行一个，可一次粘贴多行"></textarea>
+    <div class="actions">
+      <button id="doImport" class="btn">导入邮箱</button>
+      <button id="startSel" class="btn">注册勾选</button>
+      <button id="stop" class="btn danger">停止</button>
+      <button id="expAll" class="btn">导出全部</button>
+      <button id="expSel" class="btn">导出勾选</button>
+      <button id="del" class="btn">删除选中</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th class="ck"><input id="pageAll" type="checkbox" title="本页全选" /></th><th>邮箱</th><th>状态</th><th>国家</th><th>次数</th><th>结果</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span>每页</span>
+      <input id="pageSize" type="number" min="10" max="500" value="50" />
+      <span>条</span>
+      <button id="prev" class="btn" type="button">上一页</button>
+      <span id="pageInfo"></span>
+      <button id="next" class="btn" type="button">下一页</button>
+    </div>
+    <h2>日志</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Activate / adobe_pure_protocol runtime (MatchGame + PoW + YesCaptcha)
+# Install on every host:
+#   python3 -m pip install --break-system-packages -r data/activate/requirements.txt
+#
+# Optional (local torch classifier in tools/adobe_register_pure.py only — not required for fireflyd activate):
+#   numpy torch
+
+curl_cffi>=0.7.0
+pycryptodome>=3.20.0
+Pillow>=10.0.0
+requests>=2.31.0

@@ -1,0 +1,29 @@
+{
+ "forter": {
+  "events": [],
+  "tokens": [
+   {
+    "src": "event",
+    "detail": "\"86d46a0ab7144e74a655f23e81516f76_1791969524498___31ck_tt\""
+   },
+   {
+    "src": "event",
+    "detail": "\"86d46a0ab7144e74a655f23e81516f76_1791969524498__UDF43_31ck__tt\""
+   },
+   {
+    "src": "event",
+    "detail": "\"86d46a0ab7144e74a655f23e81516f76_1791969524498__UDF43-m4_31ck__tt\""
+   }
+  ],
+  "storage": {}
+ },
+ "extra": {
+  "ftrConfig": "{\"m\":{\"csp\":false},\"s\":\"31\",\"si\":\"8a81eebba889\"}",
+  "ls": {
+   "forterToken": "86d46a0ab7144e74a655f23e81516f76,1791969528466",
+   "com.adobe.alloy.9E1005A551ED61CA0A490D45_AdobeOrg.consentHashes.Adobe.2.0": "504eabbd",
+   "ftr__gf": "{\"et\":1791969527087,\"us\":\"\\u0003\\u001a<~n\\u0007mLPN\\u001aYs\\\\\\u0002IS\\u0015G{3h\\u00061EZ\\t\\t\\u000e=bP\"}"
+  },
+  "ss": {}
+ }
+}
