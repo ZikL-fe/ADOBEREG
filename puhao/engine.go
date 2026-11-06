@@ -42,11 +42,6 @@ func (e *Engine) Running() bool {
 }
 
 func (e *Engine) Start(ids []string) (int, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.running {
-		return 0, errBusy
-	}
 	set := e.store.Settings()
 	if strings.TrimSpace(set.CaptchaKey) == "" {
 		return 0, errNoKey
@@ -54,6 +49,41 @@ func (e *Engine) Start(ids []string) (int, error) {
 	if len(proxyLines(set.Proxies)) == 0 {
 		return 0, errNoProxy
 	}
+	e.mu.Lock()
+	if e.running {
+		e.mu.Unlock()
+		return 0, errBusy
+	}
+	// Claim the run first: the ReMail top-up below does network I/O and must
+	// not hold the engine lock (Running / Stop stay responsive).
+	e.running = true
+	e.mu.Unlock()
+	launched := false
+	defer func() {
+		if !launched {
+			e.mu.Lock()
+			e.running = false
+			e.mu.Unlock()
+		}
+	}()
+
+	// ReMail top-up: buy the mailboxes this round is short of before starting.
+	if set.ReMailAuto && strings.TrimSpace(set.ReMailKey) != "" {
+		want := set.Count
+		if want <= 0 {
+			want = len(ids)
+		}
+		if want > 0 {
+			if pending := e.pendingCount(); pending < want {
+				if n, err := e.PullReMail(want-pending, set); err != nil {
+					e.log("warn", "ReMail 补号没成："+err.Error())
+				} else if n > 0 {
+					e.log("ok", "ReMail 补了 "+itoa(n)+" 个邮箱")
+				}
+			}
+		}
+	}
+
 	todo := make([]string, 0, len(ids))
 	for _, id := range ids {
 		acc, ok := e.store.Get(id)
@@ -75,11 +105,23 @@ func (e *Engine) Start(ids []string) (int, error) {
 		return 0, errNone
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	e.mu.Lock()
 	e.cancel = cancel
-	e.running = true
+	e.mu.Unlock()
+	launched = true
 	e.log("info", "开始注册 "+itoa(len(todo))+" 个")
 	go e.loop(ctx, todo, set)
 	return len(todo), nil
+}
+
+func (e *Engine) pendingCount() int {
+	n := 0
+	for _, acc := range e.store.List() {
+		if acc.Status == "pending" {
+			n++
+		}
+	}
+	return n
 }
 
 func (e *Engine) Stop() {

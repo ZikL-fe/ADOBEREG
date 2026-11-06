@@ -29,7 +29,7 @@ func peekCodes(ctx context.Context, secret, email string) map[string]struct{} {
 
 func waitCode(ctx context.Context, secret, email string, since time.Time, used map[string]struct{}, log func(string)) (string, error) {
 	cred := mail.Parse(secret)
-	if cred.ClientID == "" || cred.Refresh == "" {
+	if !cred.Ready() {
 		return "", fmt.Errorf("收码小本本不完整")
 	}
 	if since.IsZero() {
@@ -38,14 +38,21 @@ func waitCode(ctx context.Context, secret, email string, since time.Time, used m
 	if used == nil {
 		used = map[string]struct{}{}
 	}
+	// ReMail runs an upstream fetch job per mailbox, so the receive window is
+	// longer than one IMAP read and the first code can take a while to land.
 	deadline := time.Now().Add(120 * time.Second)
+	if cred.ReMailMailbox() {
+		deadline = time.Now().Add(300 * time.Second)
+	}
 	var lastErr error
 	told := false
+	// One session for the whole wait: ReMail keeps its pickup throttle
+	// (nextFetchAllowedAt) on the session, a fresh one every round would forget it.
+	sess, err := mail.Open(email, secret)
+	if err != nil {
+		return "", fmt.Errorf("收码信箱打不开")
+	}
 	for {
-		sess, err := mail.Open(email, secret)
-		if err != nil {
-			return "", fmt.Errorf("收码信箱打不开")
-		}
 		items, err := sess.List(ctx)
 		if err != nil {
 			lastErr = err
@@ -97,10 +104,20 @@ func waitCode(ctx context.Context, secret, email string, since time.Time, used m
 			}
 			return "", fmt.Errorf("验证码迟迟不来")
 		}
+		wait := 5 * time.Second
+		// ReMail answers with fetch.nextFetchAllowedAt; going earlier is wasted.
+		if next := sess.NextAllowed(); next.After(time.Now()) {
+			if gap := time.Until(next) + 300*time.Millisecond; gap > wait {
+				wait = gap
+			}
+		}
+		if wait > 20*time.Second {
+			wait = 20 * time.Second
+		}
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(5 * time.Second):
+		case <-time.After(wait):
 		}
 	}
 }

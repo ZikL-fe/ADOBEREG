@@ -20,6 +20,15 @@ type Settings struct {
 	Count       int    `json:"count"`
 	Concurrency int    `json:"concurrency"`
 	IntervalSec int    `json:"intervalSec"`
+
+	// ReMail (https://remail.aishop6.com/docs) supplies mailboxes over its
+	// open API instead of an imported refresh token.
+	ReMailKey     string `json:"remailKey"`     // rk-… API key, ordering only
+	ReMailBase    string `json:"remailBase"`    // optional custom host
+	ReMailProject int64  `json:"remailProject"` // project id (0 = auto pick)
+	ReMailSuffix  string `json:"remailSuffix"`  // outlook.com / outlook / domain / …
+	ReMailMode    string `json:"remailMode"`    // code | purchase
+	ReMailAuto    bool   `json:"remailAuto"`    // top up before each run
 }
 
 type Account struct {
@@ -43,7 +52,7 @@ type Store struct {
 }
 
 func openStore(path string) *Store {
-	s := &Store{settings: Settings{Country: "US", Concurrency: 1}}
+	s := &Store{settings: Settings{Country: "US", Concurrency: 1, ReMailMode: "code", ReMailSuffix: "outlook", ReMailAuto: true}}
 	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -58,7 +67,13 @@ CREATE TABLE IF NOT EXISTS settings (
   proxies TEXT NOT NULL DEFAULT '',
   country TEXT NOT NULL DEFAULT 'US',
   count INTEGER NOT NULL DEFAULT 0,
-  concurrency INTEGER NOT NULL DEFAULT 1
+  concurrency INTEGER NOT NULL DEFAULT 1,
+  remail_key TEXT NOT NULL DEFAULT '',
+  remail_base TEXT NOT NULL DEFAULT '',
+  remail_project INTEGER NOT NULL DEFAULT 0,
+  remail_suffix TEXT NOT NULL DEFAULT '',
+  remail_mode TEXT NOT NULL DEFAULT 'code',
+  remail_auto INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
@@ -72,6 +87,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   created_at INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT 0
 );`)
+	s.ensureSettingsColumns()
 	s.load()
 	s.ReleaseRunning("软件已关闭，已放开")
 	if !s.hasRows() {
@@ -94,9 +110,14 @@ func (s *Store) load() {
 	if s.db == nil {
 		return
 	}
-	row := s.db.QueryRow(`SELECT captcha_key, proxies, country, count, concurrency FROM settings WHERE id = 1`)
+	row := s.db.QueryRow(`SELECT captcha_key, proxies, country, count, concurrency,
+		remail_key, remail_base, remail_project, remail_suffix, remail_mode, remail_auto
+		FROM settings WHERE id = 1`)
 	var set Settings
-	if err := row.Scan(&set.CaptchaKey, &set.Proxies, &set.Country, &set.Count, &set.Concurrency); err == nil {
+	var auto int
+	if err := row.Scan(&set.CaptchaKey, &set.Proxies, &set.Country, &set.Count, &set.Concurrency,
+		&set.ReMailKey, &set.ReMailBase, &set.ReMailProject, &set.ReMailSuffix, &set.ReMailMode, &auto); err == nil {
+		set.ReMailAuto = auto != 0
 		s.settings = set
 	}
 	rows, err := s.db.Query(`SELECT id, email, secret, country, status, message, tries, cookie, created_at, updated_at FROM accounts ORDER BY created_at, email`)
@@ -144,21 +165,80 @@ func (s *Store) normalizeSettings() {
 	if s.settings.Concurrency > 20 {
 		s.settings.Concurrency = 20
 	}
+	if s.settings.ReMailMode != "purchase" {
+		s.settings.ReMailMode = "code"
+	}
+	s.settings.ReMailKey = strings.TrimSpace(s.settings.ReMailKey)
+	s.settings.ReMailBase = strings.TrimRight(strings.TrimSpace(s.settings.ReMailBase), "/")
+	s.settings.ReMailSuffix = strings.ToLower(strings.TrimSpace(s.settings.ReMailSuffix))
+}
+
+// ensureSettingsColumns upgrades a puhao.db written by an older build: the
+// ReMail columns did not exist there.
+func (s *Store) ensureSettingsColumns() {
+	if s.db == nil {
+		return
+	}
+	have := map[string]bool{}
+	rows, err := s.db.Query(`PRAGMA table_info(settings)`)
+	if err != nil {
+		return
+	}
+	for rows.Next() {
+		var (
+			cid       int
+			name, typ string
+			notnull   int
+			dflt      any
+			pk        int
+		)
+		if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil {
+			have[strings.ToLower(name)] = true
+		}
+	}
+	rows.Close()
+	add := []struct{ name, ddl string }{
+		{"remail_key", `ALTER TABLE settings ADD COLUMN remail_key TEXT NOT NULL DEFAULT ''`},
+		{"remail_base", `ALTER TABLE settings ADD COLUMN remail_base TEXT NOT NULL DEFAULT ''`},
+		{"remail_project", `ALTER TABLE settings ADD COLUMN remail_project INTEGER NOT NULL DEFAULT 0`},
+		{"remail_suffix", `ALTER TABLE settings ADD COLUMN remail_suffix TEXT NOT NULL DEFAULT ''`},
+		{"remail_mode", `ALTER TABLE settings ADD COLUMN remail_mode TEXT NOT NULL DEFAULT 'code'`},
+		{"remail_auto", `ALTER TABLE settings ADD COLUMN remail_auto INTEGER NOT NULL DEFAULT 1`},
+	}
+	for _, col := range add {
+		if have[col.name] {
+			continue
+		}
+		_, _ = s.db.Exec(col.ddl)
+	}
 }
 
 func (s *Store) writeSettings() {
 	if s.db == nil {
 		return
 	}
-	_, _ = s.db.Exec(`INSERT INTO settings (id, captcha_key, proxies, country, count, concurrency)
-		VALUES (1, ?, ?, ?, ?, ?)
+	auto := 0
+	if s.settings.ReMailAuto {
+		auto = 1
+	}
+	_, _ = s.db.Exec(`INSERT INTO settings (id, captcha_key, proxies, country, count, concurrency,
+			remail_key, remail_base, remail_project, remail_suffix, remail_mode, remail_auto)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  captcha_key = excluded.captcha_key,
 		  proxies = excluded.proxies,
 		  country = excluded.country,
 		  count = excluded.count,
-		  concurrency = excluded.concurrency`,
-		s.settings.CaptchaKey, s.settings.Proxies, s.settings.Country, s.settings.Count, s.settings.Concurrency)
+		  concurrency = excluded.concurrency,
+		  remail_key = excluded.remail_key,
+		  remail_base = excluded.remail_base,
+		  remail_project = excluded.remail_project,
+		  remail_suffix = excluded.remail_suffix,
+		  remail_mode = excluded.remail_mode,
+		  remail_auto = excluded.remail_auto`,
+		s.settings.CaptchaKey, s.settings.Proxies, s.settings.Country, s.settings.Count, s.settings.Concurrency,
+		s.settings.ReMailKey, s.settings.ReMailBase, s.settings.ReMailProject, s.settings.ReMailSuffix,
+		s.settings.ReMailMode, auto)
 }
 
 func (s *Store) writeAccount(a Account) {
@@ -206,6 +286,19 @@ func (s *Store) SaveSettings(in Settings) Settings {
 		in.Count = 9999
 	}
 	in.IntervalSec = 0
+	in.ReMailKey = strings.TrimSpace(in.ReMailKey)
+	in.ReMailBase = strings.TrimRight(strings.TrimSpace(in.ReMailBase), "/")
+	in.ReMailSuffix = strings.ToLower(strings.TrimSpace(in.ReMailSuffix))
+	if in.ReMailSuffix == "" {
+		in.ReMailSuffix = "outlook"
+	}
+	in.ReMailMode = strings.ToLower(strings.TrimSpace(in.ReMailMode))
+	if in.ReMailMode != "purchase" {
+		in.ReMailMode = "code"
+	}
+	if in.ReMailProject < 0 {
+		in.ReMailProject = 0
+	}
 	s.settings = in
 	s.writeSettings()
 	return in

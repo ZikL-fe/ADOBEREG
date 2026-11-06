@@ -45,6 +45,42 @@
     <button id="startLocal" class="btn block primary">开始注册</button>
     <p id="saveMsg" class="hint"></p>
   </section>
+  <section class="card">
+    <h2>ReMail 取码邮箱</h2>
+    <label>API Key（rk- 开头，仅下单用）</label>
+    <input id="rkey" type="password" autocomplete="off" placeholder="rk-xxxxxxxx" />
+    <div class="pair">
+      <div>
+        <label>项目编号（0=自动挑）</label>
+        <input id="rproj" type="number" min="0" step="1" value="0" />
+      </div>
+      <div>
+        <label>后缀</label>
+        <input id="rsuffix" placeholder="outlook / outlook.com / domain" />
+      </div>
+    </div>
+    <div class="pair">
+      <div>
+        <label>下单方式</label>
+        <select id="rmode">
+          <option value="code">短效接码</option>
+          <option value="purchase">长效购买</option>
+        </select>
+      </div>
+      <div>
+        <label>开始前自动补号</label>
+        <select id="rauto">
+          <option value="1">开</option>
+          <option value="0">关</option>
+        </select>
+      </div>
+    </div>
+    <label>接口地址（留空走官方）</label>
+    <input id="rbase" placeholder="https://remail.aishop6.com" />
+    <button id="remailCheck" class="btn block">检测密钥 / 项目</button>
+    <button id="remailPull" class="btn block">拉号入库</button>
+    <p id="remailMsg" class="hint"></p>
+  </section>
   <section class="card grow">
     <div class="bar">
       <h2>邮箱</h2>
@@ -61,7 +97,7 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th class="ck"><input id="pageAll" type="checkbox" title="本页全选" /></th><th>邮箱</th><th>状态</th><th>国家</th><th>次数</th><th>结果</th></tr></thead>
+        <thead><tr><th class="ck"><input id="pageAll" type="checkbox" title="本页全选" /></th><th>邮箱</th><th>状态</th><th>国家</th><th>次数</th><th>结果</th><th>取信</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>

@@ -65,7 +65,14 @@ type Credential struct {
 	AuxPassword string
 }
 
-func (c Credential) Ready() bool  { return c.Password != "" && c.ClientID != "" && c.Refresh != "" }
+// Ready: a Microsoft row needs password + clientId + refresh; a ReMail row is
+// "remail----<serviceToken>" and needs the token only.
+func (c Credential) Ready() bool {
+	if strings.EqualFold(c.Password, "remail") {
+		return c.ClientID != ""
+	}
+	return c.Password != "" && c.ClientID != "" && c.Refresh != ""
+}
 func (c Credential) HasAux() bool { return strings.Contains(c.AuxEmail, "@") && c.AuxPassword != "" }
 
 // ParseSecret splits the secret half of a line. Accepts both the 3-part

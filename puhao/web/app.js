@@ -23,6 +23,12 @@ function fillSettings(s) {
   $("country").value = COUNTRIES.includes(s.country) ? s.country : "US";
   $("count").value = s.count || 0;
   $("conc").value = s.concurrency || 1;
+  $("rkey").value = s.remailKey || "";
+  $("rproj").value = s.remailProject || 0;
+  $("rsuffix").value = s.remailSuffix || "";
+  $("rbase").value = s.remailBase || "";
+  $("rmode").value = s.remailMode === "purchase" ? "purchase" : "code";
+  $("rauto").value = s.remailAuto === false ? "0" : "1";
   settingsReady = true;
 }
 
@@ -34,6 +40,12 @@ function readSettings() {
     count: Number($("count").value) || 0,
     concurrency: Number($("conc").value) || 1,
     intervalSec: 0,
+    remailKey: $("rkey").value.trim(),
+    remailBase: $("rbase").value.trim(),
+    remailProject: Number($("rproj").value) || 0,
+    remailSuffix: $("rsuffix").value.trim(),
+    remailMode: $("rmode").value,
+    remailAuto: $("rauto").value === "1",
   };
 }
 
@@ -81,6 +93,7 @@ function render(state) {
     <td>${esc(a.country || "")}</td>
     <td>${a.tries || 0}</td>
     <td>${esc(a.message || "")}${a.hasCookie ? " · 可导出" : ""}</td>
+    <td>${a.remail ? `<button class="btn mini" type="button" data-mail="${esc(a.email)}">读信</button>` : ""}</td>
   </tr>`).join("");
   const picked = accounts.filter((a) => sel.has(a.id)).length;
   $("pageInfo").textContent = accounts.length ? `${page} / ${pages}　已选 ${picked}` : "0 / 1";
@@ -131,6 +144,39 @@ $("rows").addEventListener("change", (ev) => {
 });
 
 $("save").onclick = () => saveSettings().catch((e) => { $("saveMsg").textContent = e.message; });
+$("remailCheck").onclick = async () => {
+  try {
+    await saveSettings();
+    $("remailMsg").textContent = "正在问 ReMail…";
+    const r = await api("/api/remail/check", { method: "POST" });
+    const proj = r.project ? `项目 ${r.project.id}${r.project.name ? " " + r.project.name : ""}` : (r.projectError || "没挑到项目");
+    const names = (r.projects || []).slice(0, 4).map((p) => `${p.id} ${p.name || ""}`).join("，");
+    $("remailMsg").textContent = `密钥 ${r.keyPrefix || "?"} 可用 ${r.enabled ? "是" : "否"}，余额 ${r.balance || "0"}，${proj}${names ? "；可选：" + names : ""}`;
+  } catch (e) { $("remailMsg").textContent = e.message; }
+};
+$("remailPull").onclick = async () => {
+  try {
+    await saveSettings();
+    const n = Number($("count").value) || 1;
+    $("remailMsg").textContent = `正在拉 ${n} 个邮箱…`;
+    const r = await api("/api/remail/pull", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: n }) });
+    $("remailMsg").textContent = `入库 ${r.added} 个（目标 ${r.want}）`;
+    await refresh();
+  } catch (e) { $("remailMsg").textContent = e.message; }
+};
+async function readMail(email) {
+  $("remailMsg").textContent = `读 ${email} 的信箱…`;
+  try {
+    const r = await api("/api/remail/mail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+    const items = r.items || [];
+    if (!items.length) { $("remailMsg").textContent = `${email} 还没有邮件`; return; }
+    $("remailMsg").textContent = items.map((it) => `${it.receivedAt ? new Date(it.receivedAt).toLocaleTimeString() : ""} ${it.code ? "[" + it.code + "] " : ""}${it.subject || it.from}｜${String(it.preview || "").slice(0, 60)}`).join("\n");
+  } catch (e) { $("remailMsg").textContent = e.message; }
+}
+$("rows").addEventListener("click", (ev) => {
+  const email = ev.target.getAttribute && ev.target.getAttribute("data-mail");
+  if (email) readMail(email);
+});
 $("initEnv").onclick = async () => {
   $("saveMsg").textContent = "正在初始化环境";
   try {

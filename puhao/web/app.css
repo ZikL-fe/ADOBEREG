@@ -147,6 +147,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .chip.bad { color: var(--bad); }
 .chip.run { color: var(--run); }
 .hint { margin: 8px 0 0; min-height: 1.2em; color: var(--muted); }
+#remailMsg { white-space: pre-line; }
+.btn.mini { padding: 0 6px; font-size: 11px; line-height: 18px; border-radius: 4px; }
 .table-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--field); }
 th.ck, td:first-child { width: 36px; }
 .pager {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"firefly-go/internal/mail"
 	"firefly-go/internal/refill"
 )
 
@@ -64,6 +66,9 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/env", a.handleEnv)
 	mux.HandleFunc("/api/settings", a.handleSettings)
 	mux.HandleFunc("/api/import", a.handleImport)
+	mux.HandleFunc("/api/remail/check", a.handleReMailCheck)
+	mux.HandleFunc("/api/remail/pull", a.handleReMailPull)
+	mux.HandleFunc("/api/remail/mail", a.handleReMailMail)
 	mux.HandleFunc("/api/start", a.handleStart)
 	mux.HandleFunc("/api/stop", a.handleStop)
 	mux.HandleFunc("/api/delete", a.handleDelete)
@@ -119,10 +124,12 @@ func (a *App) handleState(w http.ResponseWriter, r *http.Request) {
 		if acc.Cookie != "" {
 			sum["cookie"]++
 		}
+		cred := mail.Parse(acc.Secret)
 		view = append(view, map[string]any{
 			"id": acc.ID, "email": acc.Email, "country": acc.Country,
 			"status": acc.Status, "message": acc.Message, "tries": acc.Tries,
-			"hasCookie": acc.Cookie != "", "ready": secretReady(acc.Secret),
+			"hasCookie": acc.Cookie != "", "ready": cred.Ready(),
+			"remail": cred.ReMailMailbox(),
 		})
 	}
 	a.mu.Lock()
@@ -195,6 +202,94 @@ func (a *App) handleImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]int{"added": added, "updated": updated})
 }
 
+// handleReMailCheck reads the API key profile and the projects that can be
+// ordered right now (GET /v1/open/apikey/profile + /v1/open/projects).
+func (a *App) handleReMailCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", 405)
+		return
+	}
+	set := a.store.Settings()
+	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+	defer cancel()
+	out, err := remailProbe(ctx, set)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, out)
+}
+
+// handleReMailPull orders N mailboxes (POST /v1/open/orders) and imports them
+// as pending accounts with a remail----<serviceToken> secret.
+func (a *App) handleReMailPull(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", 405)
+		return
+	}
+	var body struct {
+		Count int `json:"count"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+	set := a.store.Settings()
+	if strings.TrimSpace(set.ReMailKey) == "" {
+		writeErr(w, 400, "先填 ReMail 密钥并保存")
+		return
+	}
+	n := body.Count
+	if n <= 0 {
+		n = set.Count
+	}
+	if n <= 0 {
+		n = 1
+	}
+	if n > 200 {
+		n = 200
+	}
+	added, err := a.engine.PullReMail(n, set)
+	if err != nil && added == 0 {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"added": added, "want": n})
+}
+
+// handleReMailMail previews the newest messages of one ReMail mailbox.
+func (a *App) handleReMailMail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", 405)
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, 400, "内容读不懂")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(body.Email))
+	var acc Account
+	found := false
+	for _, it := range a.store.List() {
+		if it.Email == email {
+			acc, found = it, true
+			break
+		}
+	}
+	if !found {
+		writeErr(w, 400, "先导入这个邮箱")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	items, err := remailPreview(ctx, a.store.Settings(), acc)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"email": acc.Email, "items": items})
+}
+
 func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		IDs []string `json:"ids"`
@@ -203,6 +298,26 @@ func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
 	ids := body.IDs
 	if body.All {
+		// Pull ReMail mailboxes first so this round actually uses them: the id
+		// list below is built from what is already in the pool.
+		set := a.store.Settings()
+		if set.ReMailAuto && strings.TrimSpace(set.ReMailKey) != "" {
+			if want := set.Count; want > 0 {
+				pending := 0
+				for _, acc := range a.store.List() {
+					if acc.Status == "pending" {
+						pending++
+					}
+				}
+				if pending < want {
+					if n, err := a.engine.PullReMail(want-pending, set); err != nil {
+						a.addLog("warn", "ReMail 补号没成："+err.Error())
+					} else if n > 0 {
+						a.addLog("ok", "ReMail 补了 "+itoa(n)+" 个邮箱")
+					}
+				}
+			}
+		}
 		ids = nil
 		for _, acc := range a.store.List() {
 			if acc.Status == "pending" || acc.Status == "failed" {
@@ -263,7 +378,7 @@ func (a *App) handleExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func secretReady(secret string) bool {
-	return strings.Count(secret, "----") >= 2
+	return mail.Parse(secret).Ready()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
